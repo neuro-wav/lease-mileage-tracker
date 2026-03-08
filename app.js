@@ -2,6 +2,19 @@
 
 window.App = window.App || {};
 
+// ===== Supabase Client =====
+const SUPABASE_URL = 'https://rmontolgjfondmcjpxmk.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtb250b2xnamZvbmRtY2pweG1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMDQ0MDQsImV4cCI6MjA4ODU4MDQwNH0.P-kfJYf_lwuJ4yV3fYgFZ5SYnMG5xD_pbUtyaiHV7tw';
+
+let _supabase = null;
+try {
+  if (typeof supabase !== 'undefined' && supabase.createClient) {
+    _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) {
+  console.warn('Supabase client init failed:', e);
+}
+
 // ===== Storage Module =====
 App.Storage = {
   KEY: 'leaseMileageTracker',
@@ -24,6 +37,49 @@ App.Storage = {
     } catch (e) {
       App.UI.showToast('Failed to save data. Storage may be full.');
     }
+    // Non-blocking cloud sync
+    this.saveToCloud(data);
+  },
+
+  async saveToCloud(data) {
+    if (!_supabase) return;
+    const userId = App.Auth.userId();
+    if (!userId) return;
+    try {
+      await _supabase.from('user_data').upsert({
+        user_id: userId,
+        data: data,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+    } catch (e) {
+      console.warn('Cloud sync failed:', e);
+    }
+  },
+
+  async loadFromCloud() {
+    if (!_supabase) return false;
+    const userId = App.Auth.userId();
+    if (!userId) return false;
+    try {
+      const { data: row, error } = await _supabase
+        .from('user_data')
+        .select('data')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) { console.warn('Cloud load error:', error); return false; }
+      if (row && row.data) {
+        localStorage.setItem(this.KEY, JSON.stringify(row.data));
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn('Cloud load failed:', e);
+      return false;
+    }
+  },
+
+  clearLocal() {
+    localStorage.removeItem(this.KEY);
   },
 
   exportJSON() {
@@ -54,8 +110,81 @@ App.Storage = {
     }
   },
 
-  reset() {
+  async reset() {
     localStorage.removeItem(this.KEY);
+    // Also delete cloud data if signed in
+    if (_supabase && App.Auth.userId()) {
+      try {
+        await _supabase.from('user_data').delete().eq('user_id', App.Auth.userId());
+      } catch (e) {
+        console.warn('Cloud delete failed:', e);
+      }
+    }
+  }
+};
+
+// ===== Auth Module =====
+App.Auth = {
+  _session: null,
+  _isOffline: false, // true if user chose "continue without account"
+
+  async init() {
+    if (!_supabase) return null;
+    try {
+      const { data: { session } } = await _supabase.auth.getSession();
+      this._session = session;
+      // Listen for auth state changes (e.g. token refresh)
+      _supabase.auth.onAuthStateChange((_event, session) => {
+        this._session = session;
+      });
+      return session;
+    } catch (e) {
+      console.warn('Auth init failed:', e);
+      return null;
+    }
+  },
+
+  async signIn(email, password) {
+    if (!_supabase) throw new Error('Auth not available');
+    const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    this._session = data.session;
+    return data;
+  },
+
+  async signUp(email, password) {
+    if (!_supabase) throw new Error('Auth not available');
+    const { data, error } = await _supabase.auth.signUp({ email, password });
+    if (error) throw error;
+    this._session = data.session;
+    return data;
+  },
+
+  async signOut() {
+    if (!_supabase) return;
+    await _supabase.auth.signOut();
+    this._session = null;
+    this._isOffline = false;
+  },
+
+  userId() {
+    return this._session?.user?.id || null;
+  },
+
+  userEmail() {
+    return this._session?.user?.email || null;
+  },
+
+  isSignedIn() {
+    return !!this._session;
+  },
+
+  skipAuth() {
+    this._isOffline = true;
+  },
+
+  isOfflineMode() {
+    return this._isOffline;
   }
 };
 
@@ -235,8 +364,31 @@ App.Calc = {
 // ===== UI Module =====
 App.UI = {
   data: null,
+  _authMode: 'signin', // 'signin' or 'signup'
 
-  init() {
+  async init() {
+    this.bindEvents();
+
+    // Check for existing auth session
+    const session = await App.Auth.init();
+
+    if (!session) {
+      // No session — show auth screen
+      this.showView('auth');
+      document.getElementById('bottom-nav').classList.add('hidden');
+      return;
+    }
+
+    // Session exists — load cloud data, then render app
+    await this._enterApp();
+  },
+
+  async _enterApp() {
+    // Try loading from cloud first, then fall back to localStorage
+    if (App.Auth.isSignedIn()) {
+      await App.Storage.loadFromCloud();
+    }
+
     this.data = App.Storage.load();
 
     if (!this.data || !this.data.config) {
@@ -247,8 +399,6 @@ App.UI = {
       this.showView(lastView);
       document.getElementById('bottom-nav').classList.remove('hidden');
     }
-
-    this.bindEvents();
   },
 
   showView(name) {
@@ -263,6 +413,7 @@ App.UI = {
 
     // Render view content
     switch (name) {
+      case 'auth': break; // no render needed
       case 'setup': this.renderSetup(); break;
       case 'dashboard': this.renderDashboard(); break;
       case 'log': this.renderLog(); break;
@@ -270,13 +421,60 @@ App.UI = {
       case 'settings': this.renderSettings(); break;
     }
 
-    if (this.data && this.data.uiState) {
+    // Don't persist 'auth' or 'setup' as the active view
+    if (this.data && this.data.uiState && name !== 'auth' && name !== 'setup') {
       this.data.uiState.activeView = name;
       App.Storage.save(this.data);
     }
   },
 
   bindEvents() {
+    // Auth form
+    document.getElementById('auth-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.handleAuthSubmit();
+    });
+    document.getElementById('auth-toggle-btn').addEventListener('click', () => {
+      this._authMode = this._authMode === 'signin' ? 'signup' : 'signin';
+      const btn = document.getElementById('auth-submit-btn');
+      const toggleText = document.getElementById('auth-toggle-text');
+      const toggleBtn = document.getElementById('auth-toggle-btn');
+      if (this._authMode === 'signup') {
+        btn.textContent = 'Sign Up';
+        toggleText.textContent = 'Already have an account?';
+        toggleBtn.textContent = 'Sign In';
+      } else {
+        btn.textContent = 'Sign In';
+        toggleText.textContent = "Don't have an account?";
+        toggleBtn.textContent = 'Sign Up';
+      }
+      document.getElementById('auth-error').classList.add('hidden');
+    });
+    document.getElementById('auth-skip-btn').addEventListener('click', () => {
+      App.Auth.skipAuth();
+      this.data = App.Storage.load();
+      if (!this.data || !this.data.config) {
+        this.showView('setup');
+        document.getElementById('bottom-nav').classList.add('hidden');
+      } else {
+        const lastView = (this.data.uiState && this.data.uiState.activeView) || 'dashboard';
+        this.showView(lastView);
+        document.getElementById('bottom-nav').classList.remove('hidden');
+      }
+    });
+
+    // Logout
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      if (!confirm('Sign out? Your data is saved in the cloud.')) return;
+      await App.Auth.signOut();
+      App.Storage.clearLocal();
+      this.data = null;
+      if (App.Charts && App.Charts.destroyAll) App.Charts.destroyAll();
+      this.showView('auth');
+      document.getElementById('bottom-nav').classList.add('hidden');
+      this.showToast('Signed out.');
+    });
+
     // Nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.addEventListener('click', () => this.showView(btn.dataset.view));
@@ -354,9 +552,9 @@ App.UI = {
       reader.readAsText(file);
       e.target.value = '';
     });
-    document.getElementById('reset-btn').addEventListener('click', () => {
+    document.getElementById('reset-btn').addEventListener('click', async () => {
       if (confirm('Are you sure you want to reset all data? This cannot be undone.')) {
-        App.Storage.reset();
+        await App.Storage.reset();
         this.data = null;
         if (App.Charts && App.Charts.destroyAll) App.Charts.destroyAll();
         this.showView('setup');
@@ -364,6 +562,56 @@ App.UI = {
         this.showToast('All data has been reset.');
       }
     });
+  },
+
+  // ===== Auth =====
+  async handleAuthSubmit() {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const errorEl = document.getElementById('auth-error');
+    const submitBtn = document.getElementById('auth-submit-btn');
+
+    errorEl.classList.add('hidden');
+    submitBtn.disabled = true;
+    submitBtn.textContent = this._authMode === 'signin' ? 'Signing in…' : 'Signing up…';
+
+    try {
+      if (this._authMode === 'signup') {
+        const result = await App.Auth.signUp(email, password);
+        // Some Supabase projects require email confirmation
+        if (result.user && !result.session) {
+          errorEl.textContent = 'Check your email to confirm your account, then sign in.';
+          errorEl.style.background = 'var(--color-blue-bg)';
+          errorEl.style.color = 'var(--color-blue)';
+          errorEl.classList.remove('hidden');
+          this._authMode = 'signin';
+          submitBtn.textContent = 'Sign In';
+          document.getElementById('auth-toggle-text').textContent = "Don't have an account?";
+          document.getElementById('auth-toggle-btn').textContent = 'Sign Up';
+          return;
+        }
+      } else {
+        await App.Auth.signIn(email, password);
+      }
+
+      // Signed in — check if existing local data should upload
+      const localData = App.Storage.load();
+      if (localData && localData.config) {
+        // Push local data to cloud on first sign-in (merge scenario)
+        await App.Storage.saveToCloud(localData);
+      }
+
+      await this._enterApp();
+      this.showToast('Signed in as ' + App.Auth.userEmail());
+    } catch (err) {
+      errorEl.textContent = err.message || 'Authentication failed.';
+      errorEl.style.background = '';
+      errorEl.style.color = '';
+      errorEl.classList.remove('hidden');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = this._authMode === 'signin' ? 'Sign In' : 'Sign Up';
+    }
   },
 
   // ===== Setup =====
@@ -873,6 +1121,15 @@ App.UI = {
         </button>
       `;
       container.appendChild(row);
+    }
+
+    // Account card — show if signed in
+    const accountCard = document.getElementById('account-card');
+    if (App.Auth.isSignedIn()) {
+      accountCard.style.display = '';
+      document.getElementById('settings-user-email').textContent = App.Auth.userEmail();
+    } else {
+      accountCard.style.display = 'none';
     }
   },
 

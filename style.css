@@ -815,6 +815,79 @@ body {
   touch-action: manipulation;
 }
 
+/* ===== Auth Screen ===== */
+.auth-container {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 48px 16px;
+  padding-top: calc(48px + env(safe-area-inset-top, 0px));
+}
+
+.auth-container h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.auth-subtitle {
+  text-align: center;
+  color: var(--color-muted);
+  margin-bottom: 32px;
+}
+
+.auth-error {
+  background: var(--color-red-bg);
+  color: var(--color-red);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+}
+
+.auth-toggle {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.auth-divider {
+  text-align: center;
+  margin: 16px 0;
+  position: relative;
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 20px);
+  height: 1px;
+  background: var(--color-border);
+}
+
+.auth-divider::before { left: 0; }
+.auth-divider::after { right: 0; }
+
+.auth-skip {
+  width: 100%;
+  justify-content: center;
+}
+
+.auth-user-email {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ===== PWA Standalone Mode ===== */
 @media all and (display-mode: standalone) {
   body {

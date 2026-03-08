@@ -20,9 +20,40 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div id="app">
+    <!-- ===== AUTH SCREEN ===== -->
+    <section id="view-auth" class="view hidden">
+      <div class="auth-container">
+        <h1>Lease Mileage Tracker</h1>
+        <p class="auth-subtitle">Sign in to sync your data across devices.</p>
+        <div class="card">
+          <form id="auth-form">
+            <div class="form-group">
+              <label for="auth-email">Email</label>
+              <input type="email" id="auth-email" required placeholder="you@example.com">
+            </div>
+            <div class="form-group">
+              <label for="auth-password">Password</label>
+              <input type="password" id="auth-password" required placeholder="At least 6 characters" minlength="6">
+            </div>
+            <div id="auth-error" class="auth-error hidden"></div>
+            <button type="submit" id="auth-submit-btn" class="btn-primary">Sign In</button>
+          </form>
+          <p class="auth-toggle">
+            <span id="auth-toggle-text">Don't have an account?</span>
+            <button type="button" id="auth-toggle-btn" class="btn-ghost btn-sm">Sign Up</button>
+          </p>
+          <div class="auth-divider">
+            <span>or</span>
+          </div>
+          <button type="button" id="auth-skip-btn" class="btn-ghost btn-sm auth-skip">Continue without account</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== SETUP SCREEN ===== -->
     <section id="view-setup" class="view">
       <div class="setup-container">
@@ -322,6 +353,14 @@
             <button id="import-btn" class="btn-secondary">Import Data (JSON)</button>
             <input type="file" id="import-file" accept=".json" class="hidden">
             <button id="reset-btn" class="btn-danger">Reset All Data</button>
+          </div>
+        </div>
+
+        <div class="card" id="account-card" style="display:none;">
+          <h3>Account</h3>
+          <div class="settings-actions">
+            <p class="auth-user-email" id="settings-user-email"></p>
+            <button id="logout-btn" class="btn-danger">Sign Out</button>
           </div>
         </div>
       </div>

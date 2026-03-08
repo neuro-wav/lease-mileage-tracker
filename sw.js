@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'lmt-v1';
+const CACHE_VERSION = 'lmt-v2';
 
 const STATIC_ASSETS = [
   './',
@@ -14,7 +14,8 @@ const STATIC_ASSETS = [
 const CDN_ASSETS = [
   'https://cdn.jsdelivr.net/npm/chart.js@4',
   'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js',
-  'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2'
+  'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
 ];
 
 const ALL_ASSETS = [...STATIC_ASSETS, ...CDN_ASSETS];
