@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.user.amazon-returns</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/estherjeon/Claude Code/Amazon Returns/run.sh</string>
+  </array>
+
+  <!-- Fire every Wednesday (Weekday 3) at 9:00 AM -->
+  <!-- launchd weekday: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>3</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Provide HOME and a PATH that includes the nvm node binary -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/estherjeon</string>
+    <key>PATH</key>
+    <string>/Users/estherjeon/.nvm/versions/node/v20.20.0/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Log launchd-level stdout/stderr separately from run.log -->
+  <key>StandardOutPath</key>
+  <string>/Users/estherjeon/Claude Code/Amazon Returns/launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/estherjeon/Claude Code/Amazon Returns/launchd.err.log</string>
+
+  <!-- Do NOT run immediately on load — only on the scheduled Wednesday trigger -->
+  <key>RunAtLoad</key>
+  <false/>
+
+</dict>
+</plist>

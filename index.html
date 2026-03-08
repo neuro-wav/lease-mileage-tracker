@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Lease Mileage Tracker</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#3b82f6">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mileage">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="format-detection" content="telephone=no">
+
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- ===== SETUP SCREEN ===== -->
+    <section id="view-setup" class="view">
+      <div class="setup-container">
+        <h1>Lease Mileage Tracker</h1>
+        <p class="setup-subtitle">Set up your lease details to start tracking.</p>
+        <form id="setup-form">
+          <div class="form-group">
+            <label for="setup-start-date">Lease Start Date</label>
+            <input type="date" id="setup-start-date" required>
+          </div>
+          <div class="form-group">
+            <label for="setup-term">Lease Term (months)</label>
+            <select id="setup-term" required>
+              <option value="">Select term</option>
+              <option value="12">12 months</option>
+              <option value="24">24 months</option>
+              <option value="36">36 months</option>
+              <option value="39">39 months</option>
+              <option value="42">42 months</option>
+              <option value="48">48 months</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="setup-odometer">Starting Odometer (miles)</label>
+            <input type="number" id="setup-odometer" min="0" step="1" required placeholder="e.g. 15">
+          </div>
+          <div class="form-group">
+            <label for="setup-allotment">Yearly Mileage Allotment</label>
+            <input type="number" id="setup-allotment" min="1" step="1" required placeholder="e.g. 12000">
+          </div>
+          <div class="form-group">
+            <label for="setup-frequency">Check-in Frequency</label>
+            <select id="setup-frequency" required>
+              <option value="daily">Daily</option>
+              <option value="weekly" selected>Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Custom Budget Targets <span class="label-hint">(optional)</span></label>
+            <div id="custom-targets-list"></div>
+            <button type="button" id="add-target-btn" class="btn-secondary btn-sm">+ Add Target</button>
+          </div>
+
+          <button type="submit" class="btn-primary">Start Tracking</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===== DASHBOARD ===== -->
+    <section id="view-dashboard" class="view hidden">
+      <div class="view-content">
+        <!-- Reminder Banner -->
+        <div id="reminder-banner" class="reminder-banner hidden">
+          <span id="reminder-text"></span>
+          <div class="reminder-actions">
+            <button id="reminder-log-btn" class="btn-primary btn-sm">Log Now</button>
+            <button id="reminder-dismiss-btn" class="btn-ghost btn-sm">Dismiss</button>
+          </div>
+        </div>
+
+        <h2>Dashboard</h2>
+
+        <!-- Lease Progress -->
+        <div class="card">
+          <h3>Lease Progress</h3>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="lease-progress-bar"></div>
+          </div>
+          <p class="progress-label" id="lease-progress-label"></p>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metric-grid">
+          <div class="card metric-card">
+            <div class="metric-label">Miles Driven</div>
+            <div class="metric-value" id="metric-driven">--</div>
+          </div>
+          <div class="card metric-card">
+            <div class="metric-label">Miles Remaining</div>
+            <div class="metric-value" id="metric-remaining">--</div>
+          </div>
+          <div class="card metric-card">
+            <div class="metric-label">Pace vs Budget</div>
+            <div class="metric-value" id="metric-pace">--</div>
+            <div class="metric-status" id="metric-pace-status"></div>
+          </div>
+        </div>
+
+        <!-- Budget Status -->
+        <div class="card">
+          <h3>Budget Status</h3>
+          <div id="budget-status-list"></div>
+        </div>
+
+        <!-- Cumulative Chart -->
+        <div class="card">
+          <div class="chart-header">
+            <h3>Cumulative Mileage</h3>
+            <button id="reset-zoom-btn" class="btn-secondary btn-sm hidden" onclick="App.Charts.resetCumulativeZoom()">Reset Zoom</button>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-cumulative"></canvas>
+          </div>
+        </div>
+
+        <!-- Gauges (dynamically created for each budget target) -->
+        <div id="gauges-container" class="gauges-grid"></div>
+      </div>
+    </section>
+
+    <!-- ===== MILEAGE LOG ===== -->
+    <section id="view-log" class="view hidden">
+      <div class="view-content">
+        <h2>Log Mileage</h2>
+
+        <div class="card">
+          <form id="log-form">
+            <div class="form-row">
+              <div class="form-group form-group-flex">
+                <label for="log-odometer">Current Odometer</label>
+                <input type="number" id="log-odometer" min="0" step="1" required placeholder="e.g. 14500">
+              </div>
+              <div class="form-group form-group-flex">
+                <label for="log-date">Date</label>
+                <input type="date" id="log-date" required>
+              </div>
+            </div>
+            <button type="submit" class="btn-primary">Save Entry</button>
+          </form>
+        </div>
+
+        <h3>History</h3>
+        <div id="log-history"></div>
+        <div id="log-empty" class="empty-state hidden">
+          <p>No mileage entries yet. Log your first reading above.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TRENDS ===== -->
+    <section id="view-trends" class="view hidden">
+      <div class="view-content">
+        <h2>Trends</h2>
+
+        <div id="trends-empty" class="empty-state hidden">
+          <p>Not enough data yet. Log a few mileage readings to see trends.</p>
+        </div>
+
+        <div id="trends-content">
+          <!-- Period Comparison -->
+          <div class="card">
+            <h3>Current vs Previous Period</h3>
+            <div class="trend-comparison">
+              <div class="trend-row">
+                <span class="trend-label" id="trend-current-label">This period:</span>
+                <span class="trend-value" id="trend-current-value">--</span>
+              </div>
+              <div class="trend-row">
+                <span class="trend-label" id="trend-previous-label">Last period:</span>
+                <span class="trend-value" id="trend-previous-value">--</span>
+              </div>
+              <div class="trend-row trend-change">
+                <span class="trend-label">Change:</span>
+                <span class="trend-value" id="trend-change-value">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Averages -->
+          <div class="card">
+            <h3>Averages Since Lease Start</h3>
+            <div class="trend-comparison">
+              <div class="trend-row">
+                <span class="trend-label">Per day:</span>
+                <span class="trend-value" id="avg-daily">--</span>
+              </div>
+              <div class="trend-row">
+                <span class="trend-label">Per week:</span>
+                <span class="trend-value" id="avg-weekly">--</span>
+              </div>
+              <div class="trend-row">
+                <span class="trend-label">Per month:</span>
+                <span class="trend-value" id="avg-monthly">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Projection -->
+          <div class="card">
+            <h3>End-of-Lease Projection</h3>
+            <div class="trend-comparison">
+              <div class="trend-row">
+                <span class="trend-label">Projected total:</span>
+                <span class="trend-value" id="proj-total">--</span>
+              </div>
+              <div class="trend-row">
+                <span class="trend-label">Lease allotment:</span>
+                <span class="trend-value" id="proj-allotment">--</span>
+              </div>
+              <div class="trend-row trend-change">
+                <span class="trend-label">Difference:</span>
+                <span class="trend-value" id="proj-diff">--</span>
+              </div>
+            </div>
+            <div class="trend-acceleration" id="trend-acceleration"></div>
+          </div>
+
+          <!-- Period Bar Chart -->
+          <div class="card">
+            <h3>Miles Per Period</h3>
+            <div class="chart-container">
+              <canvas id="chart-period"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section id="view-settings" class="view hidden">
+      <div class="view-content">
+        <h2>Settings</h2>
+
+        <div class="card">
+          <h3>Lease Configuration</h3>
+          <form id="settings-form">
+            <div class="form-group">
+              <label for="settings-start-date">Lease Start Date</label>
+              <input type="date" id="settings-start-date" required>
+            </div>
+            <div class="form-group">
+              <label for="settings-term">Lease Term (months)</label>
+              <select id="settings-term" required>
+                <option value="12">12 months</option>
+                <option value="24">24 months</option>
+                <option value="36">36 months</option>
+                <option value="39">39 months</option>
+                <option value="42">42 months</option>
+                <option value="48">48 months</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="settings-odometer">Starting Odometer (miles)</label>
+              <input type="number" id="settings-odometer" min="0" step="1" required>
+            </div>
+            <div class="form-group">
+              <label for="settings-allotment">Yearly Mileage Allotment</label>
+              <input type="number" id="settings-allotment" min="1" step="1" required>
+            </div>
+            <div class="form-group">
+              <label for="settings-frequency">Check-in Frequency</label>
+              <select id="settings-frequency" required>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Biweekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Custom Budget Targets</label>
+              <div id="settings-targets-list"></div>
+              <button type="button" id="settings-add-target-btn" class="btn-secondary btn-sm">+ Add Target</button>
+            </div>
+            <button type="submit" class="btn-primary">Save Settings</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Import Mileage CSV</h3>
+          <p class="csv-hint">Upload a CSV with daily odometer readings. The app will automatically convert them into weekly entries. Expected columns: <strong>date</strong> and <strong>odometer</strong> (or <strong>mileage</strong>).</p>
+          <div class="csv-import-actions">
+            <button id="csv-import-btn" class="btn-secondary">Choose CSV File</button>
+            <input type="file" id="csv-file" accept=".csv,.txt" class="hidden">
+          </div>
+          <div id="csv-preview" class="csv-preview hidden">
+            <div id="csv-preview-summary" class="csv-preview-summary"></div>
+            <div id="csv-preview-table-wrap" class="csv-preview-table-wrap">
+              <table id="csv-preview-table" class="csv-preview-table">
+                <thead><tr><th>Date</th><th>Odometer</th><th>Miles (week)</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="csv-preview-actions">
+              <button id="csv-confirm-btn" class="btn-primary btn-sm">Import Entries</button>
+              <button id="csv-cancel-btn" class="btn-ghost btn-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Data Management</h3>
+          <div class="settings-actions">
+            <button id="export-btn" class="btn-secondary">Export Data (JSON)</button>
+            <button id="import-btn" class="btn-secondary">Import Data (JSON)</button>
+            <input type="file" id="import-file" accept=".json" class="hidden">
+            <button id="reset-btn" class="btn-danger">Reset All Data</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== BOTTOM NAV ===== -->
+    <nav id="bottom-nav" class="bottom-nav hidden">
+      <button class="nav-btn active" data-view="dashboard">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-btn" data-view="log">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Log</span>
+      </button>
+      <button class="nav-btn" data-view="trends">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Trends</span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+  <script src="charts.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .catch((err) => console.warn('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
