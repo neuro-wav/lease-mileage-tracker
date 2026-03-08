@@ -11,7 +11,8 @@
       "Bash(source venv/bin/activate)",
       "Bash(gh auth status)",
       "Bash(npx --yes @railway/cli --version)",
-      "Bash(brew list railway)"
+      "Bash(brew list railway)",
+      "Bash(ls -d \"/Users/estherjeon/Claude Code\"/*/)"
     ]
   }
 }

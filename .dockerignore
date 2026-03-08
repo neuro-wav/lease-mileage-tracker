@@ -1,4 +1,8 @@
 .claude
 .git
+.DS_Store
 Dockerfile
 .dockerignore
+gen_icons.py
+Amazon Returns
+Matchbot
