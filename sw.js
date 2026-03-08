@@ -1,14 +1,14 @@
 const CACHE_VERSION = 'lmt-v1';
 
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/charts.js',
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png'
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './charts.js',
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
 ];
 
 const CDN_ASSETS = [
@@ -63,7 +63,7 @@ self.addEventListener('fetch', (event) => {
     }).catch(() => {
       // Offline fallback for navigation requests
       if (event.request.mode === 'navigate') {
-        return caches.match('/index.html');
+        return caches.match(new URL('./index.html', self.location).href);
       }
     })
   );

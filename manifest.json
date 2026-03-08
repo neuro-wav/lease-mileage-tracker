@@ -2,7 +2,7 @@
   "name": "Lease Mileage Tracker",
   "short_name": "Mileage",
   "description": "Track lease mileage against budget targets",
-  "start_url": "/index.html",
+  "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f1f5f9",
