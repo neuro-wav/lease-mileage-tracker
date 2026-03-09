@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'lmt-v4';
+const CACHE_VERSION = 'lmt-v5';
 
 const STATIC_ASSETS = [
   './',
