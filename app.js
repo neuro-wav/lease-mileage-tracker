@@ -525,6 +525,9 @@ App.UI = {
     document.getElementById('settings-add-target-btn').addEventListener('click', () => {
       this.addTargetRow('settings-targets-list');
     });
+    document.getElementById('settings-notifications').addEventListener('change', (e) => {
+      document.getElementById('reminder-time-group').style.display = e.target.checked ? '' : 'none';
+    });
 
     // CSV import
     document.getElementById('csv-import-btn').addEventListener('click', () => {
@@ -1206,6 +1209,8 @@ App.UI = {
     document.getElementById('settings-allotment').value = config.yearlyAllotment;
     document.getElementById('settings-frequency').value = config.checkInFrequency;
     document.getElementById('settings-notifications').checked = config.notificationsEnabled || false;
+    document.getElementById('settings-reminder-time').value = config.reminderTimeLocal || '09:00';
+    document.getElementById('reminder-time-group').style.display = config.notificationsEnabled ? '' : 'none';
 
     // Targets
     const container = document.getElementById('settings-targets-list');
@@ -1265,6 +1270,13 @@ App.UI = {
       await this.unsubscribeFromPush();
     }
 
+    const reminderTimeLocal = document.getElementById('settings-reminder-time').value || '09:00';
+    const reminderHourUTC = (() => {
+      const d = new Date();
+      d.setHours(parseInt(reminderTimeLocal.split(':')[0]), 0, 0, 0);
+      return d.getUTCHours();
+    })();
+
     this.data.config = {
       leaseStartDate: startDate,
       leaseTerm: term,
@@ -1272,7 +1284,9 @@ App.UI = {
       yearlyAllotment: allotment,
       checkInFrequency: frequency,
       customTargets: targets,
-      notificationsEnabled: notificationsEnabled
+      notificationsEnabled: notificationsEnabled,
+      reminderTimeLocal,
+      reminderHourUTC
     };
 
     App.Storage.save(this.data);
