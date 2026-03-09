@@ -6,6 +6,8 @@ window.App = window.App || {};
 const SUPABASE_URL = 'https://rmontolgjfondmcjpxmk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtb250b2xnamZvbmRtY2pweG1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMDQ0MDQsImV4cCI6MjA4ODU4MDQwNH0.P-kfJYf_lwuJ4yV3fYgFZ5SYnMG5xD_pbUtyaiHV7tw';
 
+const VAPID_PUBLIC_KEY = 'BCvh7aAADngEXVC8NEEPnh2WH09Au3xqg1H-XersVbAL8qvBlEH_-Bqc3jnYGCCArV9eZzqipHXJo5ktjbw3iaE';
+
 let _supabase = null;
 try {
   if (typeof supabase !== 'undefined' && supabase.createClient) {
@@ -13,6 +15,16 @@ try {
   }
 } catch (e) {
   console.warn('Supabase client init failed:', e);
+}
+
+// Utility: Convert VAPID public key from base64 URL to Uint8Array
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
 }
 
 // ===== Storage Module =====
@@ -876,6 +888,50 @@ App.UI = {
     App.Storage.save(this.data);
   },
 
+  async subscribeToPush() {
+    try {
+      const reg = await navigator.serviceWorker?.ready;
+      if (!reg || !reg.pushManager) return;
+
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+      }
+
+      // Store subscription in Supabase
+      if (_supabase && App.Auth.isSignedIn()) {
+        await _supabase.from('push_subscriptions').upsert({
+          user_id: App.Auth.userId(),
+          subscription: sub.toJSON()
+        }, { onConflict: 'user_id' });
+      }
+    } catch (e) {
+      console.warn('Push subscription failed:', e);
+    }
+  },
+
+  async unsubscribeFromPush() {
+    try {
+      const reg = await navigator.serviceWorker?.ready;
+      const sub = await reg?.pushManager?.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+      }
+
+      // Remove from Supabase
+      if (_supabase && App.Auth.isSignedIn()) {
+        await _supabase.from('push_subscriptions')
+          .delete()
+          .eq('user_id', App.Auth.userId());
+      }
+    } catch (e) {
+      console.warn('Push unsubscribe failed:', e);
+    }
+  },
+
   // ===== Mileage Log =====
   renderLog() {
     if (!this.data) return;
@@ -1200,6 +1256,13 @@ App.UI = {
         notificationsEnabled = false;
         permissionDenied = true;
       }
+    }
+
+    // Manage push subscription
+    if (notificationsEnabled && !permissionDenied) {
+      await this.subscribeToPush();
+    } else if (!notificationsEnabled && this.data.config.notificationsEnabled) {
+      await this.unsubscribeFromPush();
     }
 
     this.data.config = {

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'lmt-v3';
+const CACHE_VERSION = 'lmt-v4';
 
 const STATIC_ASSETS = [
   './',
@@ -66,6 +66,21 @@ self.addEventListener('fetch', (event) => {
       if (event.request.mode === 'navigate') {
         return caches.match(new URL('./index.html', self.location).href);
       }
+    })
+  );
+});
+
+// Push notification: display the notification from backend
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Mileage Reminder', {
+      body: data.body || 'Time to log your mileage!',
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      tag: 'mileage-reminder',
+      renotify: true,
+      data: { action: 'log' }
     })
   );
 });
