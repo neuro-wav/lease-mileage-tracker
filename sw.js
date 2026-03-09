@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'lmt-v2';
+const CACHE_VERSION = 'lmt-v3';
 
 const STATIC_ASSETS = [
   './',
@@ -66,6 +66,23 @@ self.addEventListener('fetch', (event) => {
       if (event.request.mode === 'navigate') {
         return caches.match(new URL('./index.html', self.location).href);
       }
+    })
+  );
+});
+
+// Notification click: open/focus the app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus existing tab if open
+      for (const client of windowClients) {
+        if (client.url.includes('index.html') || client.url.endsWith('/')) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new tab
+      return clients.openWindow('./index.html');
     })
   );
 });

@@ -506,9 +506,9 @@ App.UI = {
     });
 
     // Settings form
-    document.getElementById('settings-form').addEventListener('submit', (e) => {
+    document.getElementById('settings-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      this.handleSettingsSave();
+      await this.handleSettingsSave();
     });
     document.getElementById('settings-add-target-btn').addEventListener('click', () => {
       this.addTargetRow('settings-targets-list');
@@ -675,11 +675,13 @@ App.UI = {
         startingOdometer: odometer,
         yearlyAllotment: allotment,
         checkInFrequency: frequency,
-        customTargets: targets
+        customTargets: targets,
+        notificationsEnabled: false
       },
       entries: [],
       uiState: {
         lastDismissedReminder: null,
+        lastNotifiedDate: null,
         activeView: 'dashboard'
       }
     };
@@ -825,12 +827,53 @@ App.UI = {
 
     banner.classList.remove('hidden');
     text.textContent = `It's been ${daysSince} day${daysSince !== 1 ? 's' : ''} since your last entry — time to check in!`;
+
+    // Also fire a browser notification if enabled
+    this.sendReminderNotification(daysSince);
   },
 
   dismissReminder() {
     this.data.uiState.lastDismissedReminder = new Date().toISOString();
     App.Storage.save(this.data);
     document.getElementById('reminder-banner').classList.add('hidden');
+  },
+
+  async requestNotificationPermission() {
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') return false;
+    const result = await Notification.requestPermission();
+    return result === 'granted';
+  },
+
+  async sendReminderNotification(daysSince) {
+    if (!this.data.config.notificationsEnabled) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    // Anti-spam: only notify once per calendar day
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.data.uiState.lastNotifiedDate === today) return;
+
+    // Fire via service worker for PWA support
+    try {
+      const reg = await navigator.serviceWorker?.ready;
+      if (reg) {
+        reg.showNotification('Time to log mileage', {
+          body: `It's been ${daysSince} day${daysSince !== 1 ? 's' : ''} since your last entry.`,
+          icon: './icons/icon-192.png',
+          badge: './icons/icon-192.png',
+          tag: 'mileage-reminder',
+          renotify: true,
+          data: { action: 'log' }
+        });
+      }
+    } catch (e) {
+      console.warn('Notification failed:', e);
+    }
+
+    // Record that we notified today
+    this.data.uiState.lastNotifiedDate = today;
+    App.Storage.save(this.data);
   },
 
   // ===== Mileage Log =====
@@ -1106,6 +1149,7 @@ App.UI = {
     document.getElementById('settings-odometer').value = config.startingOdometer;
     document.getElementById('settings-allotment').value = config.yearlyAllotment;
     document.getElementById('settings-frequency').value = config.checkInFrequency;
+    document.getElementById('settings-notifications').checked = config.notificationsEnabled || false;
 
     // Targets
     const container = document.getElementById('settings-targets-list');
@@ -1133,17 +1177,29 @@ App.UI = {
     }
   },
 
-  handleSettingsSave() {
+  async handleSettingsSave() {
     const startDate = document.getElementById('settings-start-date').value;
     const term = parseInt(document.getElementById('settings-term').value);
     const odometer = parseInt(document.getElementById('settings-odometer').value);
     const allotment = parseInt(document.getElementById('settings-allotment').value);
     const frequency = document.getElementById('settings-frequency').value;
     const targets = this.getTargetsFromContainer('settings-targets-list');
+    let notificationsEnabled = document.getElementById('settings-notifications').checked;
 
     if (!startDate || !term || isNaN(odometer) || !allotment) {
       this.showToast('Please fill in all required fields.');
       return;
+    }
+
+    // Request notification permission if newly enabled
+    let permissionDenied = false;
+    if (notificationsEnabled && !(this.data.config.notificationsEnabled)) {
+      const granted = await this.requestNotificationPermission();
+      if (!granted) {
+        document.getElementById('settings-notifications').checked = false;
+        notificationsEnabled = false;
+        permissionDenied = true;
+      }
     }
 
     this.data.config = {
@@ -1152,11 +1208,14 @@ App.UI = {
       startingOdometer: odometer,
       yearlyAllotment: allotment,
       checkInFrequency: frequency,
-      customTargets: targets
+      customTargets: targets,
+      notificationsEnabled: notificationsEnabled
     };
 
     App.Storage.save(this.data);
-    this.showToast('Settings saved.');
+    this.showToast(permissionDenied
+      ? 'Saved, but notification permission was denied. Enable in browser settings.'
+      : 'Settings saved.');
   },
 
   // ===== CSV Import =====
