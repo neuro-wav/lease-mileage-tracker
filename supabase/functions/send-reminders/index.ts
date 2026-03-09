@@ -208,7 +208,9 @@ Deno.serve(async (req) => {
     }
 
     const now = Date.now();
-    const nowHourUTC = new Date().getUTCHours();
+    const nowDate = new Date();
+    const nowHourUTC = nowDate.getUTCHours();
+    const nowDayUTC = nowDate.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
     let sent = 0;
     let skipped = 0;
     const expired: string[] = [];
@@ -229,6 +231,13 @@ Deno.serve(async (req) => {
       // Check if it's the user's preferred reminder hour (default 9 AM UTC)
       const reminderHourUTC = userData.config.reminderHourUTC ?? 9;
       if (nowHourUTC !== reminderHourUTC) {
+        skipped++;
+        continue;
+      }
+
+      // Check day of week (-1 = every day, 0-6 = specific day matching UTC day)
+      const reminderDayOfWeek = userData.config.reminderDayOfWeek ?? -1;
+      if (reminderDayOfWeek !== -1 && nowDayUTC !== reminderDayOfWeek) {
         skipped++;
         continue;
       }

@@ -1210,6 +1210,7 @@ App.UI = {
     document.getElementById('settings-frequency').value = config.checkInFrequency;
     document.getElementById('settings-notifications').checked = config.notificationsEnabled || false;
     document.getElementById('settings-reminder-time').value = config.reminderTimeLocal || '09:00';
+    document.getElementById('settings-reminder-day').value = String(config.reminderDayOfWeek ?? -1);
     document.getElementById('reminder-time-group').style.display = config.notificationsEnabled ? '' : 'none';
 
     // Targets
@@ -1276,6 +1277,7 @@ App.UI = {
       d.setHours(parseInt(reminderTimeLocal.split(':')[0]), 0, 0, 0);
       return d.getUTCHours();
     })();
+    const reminderDayOfWeek = parseInt(document.getElementById('settings-reminder-day').value);
 
     this.data.config = {
       leaseStartDate: startDate,
@@ -1286,7 +1288,8 @@ App.UI = {
       customTargets: targets,
       notificationsEnabled: notificationsEnabled,
       reminderTimeLocal,
-      reminderHourUTC
+      reminderHourUTC,
+      reminderDayOfWeek
     };
 
     App.Storage.save(this.data);

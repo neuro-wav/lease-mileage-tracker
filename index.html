@@ -325,9 +325,24 @@
               </div>
               <p class="form-hint">Get notified when it's time to log mileage</p>
             </div>
-            <div class="form-group" id="reminder-time-group" style="display:none">
-              <label for="settings-reminder-time">Reminder time</label>
-              <input type="time" id="settings-reminder-time" value="09:00">
+            <div id="reminder-time-group" style="display:none">
+              <div class="form-group">
+                <label for="settings-reminder-time">Reminder time</label>
+                <input type="time" id="settings-reminder-time" value="09:00">
+              </div>
+              <div class="form-group">
+                <label for="settings-reminder-day">Day of week</label>
+                <select id="settings-reminder-day">
+                  <option value="-1">Every day</option>
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                  <option value="0">Sunday</option>
+                </select>
+              </div>
             </div>
             <div class="form-group">
               <label>Custom Budget Targets</label>
