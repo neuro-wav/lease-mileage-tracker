@@ -208,21 +208,22 @@
         <div id="trends-content">
           <!-- Period Comparison -->
           <div class="card">
-            <h3>Current vs Previous Period</h3>
-            <div class="trend-comparison">
-              <div class="trend-row">
-                <span class="trend-label" id="trend-current-label">This period:</span>
-                <span class="trend-value" id="trend-current-value">--</span>
-              </div>
-              <div class="trend-row">
-                <span class="trend-label" id="trend-previous-label">Last period:</span>
-                <span class="trend-value" id="trend-previous-value">--</span>
-              </div>
-              <div class="trend-row trend-change">
-                <span class="trend-label">Change:</span>
-                <span class="trend-value" id="trend-change-value">--</span>
-              </div>
-            </div>
+            <h3>Period Comparison</h3>
+            <table class="period-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Current</th>
+                  <th>Previous</th>
+                  <th>Change</th>
+                </tr>
+              </thead>
+              <tbody id="period-comparison-body">
+                <tr><td>Week</td><td>--</td><td>--</td><td>--</td></tr>
+                <tr><td>Month</td><td>--</td><td>--</td><td>--</td></tr>
+                <tr><td>Quarter</td><td>--</td><td>--</td><td>--</td></tr>
+              </tbody>
+            </table>
           </div>
 
           <!-- Averages -->

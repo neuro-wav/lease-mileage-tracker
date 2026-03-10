@@ -298,7 +298,7 @@ App.Calc = {
   },
 
   frequencyToDays(freq) {
-    const map = { daily: 1, weekly: 7, biweekly: 14, monthly: 30 };
+    const map = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 };
     return map[freq] || 7;
   },
 
@@ -319,11 +319,11 @@ App.Calc = {
 
   accelerationTrend(entries, startOdo, startDate) {
     const now = new Date();
-    const d30 = new Date(now.getTime() - 30 * this.MS_PER_DAY);
-    const d60 = new Date(now.getTime() - 60 * this.MS_PER_DAY);
+    const d7  = new Date(now.getTime() -  7 * this.MS_PER_DAY);
+    const d14 = new Date(now.getTime() - 14 * this.MS_PER_DAY);
 
-    const recent = this.periodMiles(entries, startOdo, startDate, d30, now) / 30;
-    const prior = this.periodMiles(entries, startOdo, startDate, d60, d30) / 30;
+    const recent = this.periodMiles(entries, startOdo, startDate, d7,  now) / 7;
+    const prior  = this.periodMiles(entries, startOdo, startDate, d14, d7)  / 7;
 
     if (prior === 0) return 'steady';
     const ratio = recent / prior;
@@ -1141,22 +1141,29 @@ App.UI = {
     trendsEmpty.classList.add('hidden');
     trendsContent.classList.remove('hidden');
 
-    // Period comparison
-    const comp = C.periodComparison(entries, config.startingOdometer, config.leaseStartDate, config.checkInFrequency);
-    const periodLabel = config.checkInFrequency === 'monthly' ? 'month' :
-                        config.checkInFrequency === 'biweekly' ? '2 weeks' : 'week';
-
-    document.getElementById('trend-current-label').textContent = `This ${periodLabel}:`;
-    document.getElementById('trend-current-value').textContent = Math.round(comp.currentMiles).toLocaleString() + ' mi';
-    document.getElementById('trend-previous-label').textContent = `Last ${periodLabel}:`;
-    document.getElementById('trend-previous-value').textContent = Math.round(comp.priorMiles).toLocaleString() + ' mi';
-
-    const changeEl = document.getElementById('trend-change-value');
-    const changeSign = comp.change >= 0 ? '+' : '';
-    const pctStr = comp.changePercent !== null ? ` (${changeSign}${comp.changePercent.toFixed(1)}%)` : '';
-    const arrow = comp.change > 0 ? ' \u25B2' : comp.change < 0 ? ' \u25BC' : '';
-    changeEl.textContent = changeSign + Math.round(comp.change).toLocaleString() + ' mi' + pctStr + arrow;
-    changeEl.className = 'trend-value' + (comp.change > 0 ? ' status-red' : comp.change < 0 ? ' status-green' : '');
+    // Period comparison — always show Week / Month / Quarter
+    const periods = [
+      { label: 'Week',    freq: 'weekly'    },
+      { label: 'Month',   freq: 'monthly'   },
+      { label: 'Quarter', freq: 'quarterly' },
+    ];
+    const tbody = document.getElementById('period-comparison-body');
+    tbody.innerHTML = '';
+    for (const { label, freq } of periods) {
+      const comp = C.periodComparison(entries, config.startingOdometer, config.leaseStartDate, freq);
+      const sign = comp.change >= 0 ? '+' : '';
+      const pct = comp.changePercent !== null ? ` (${sign}${comp.changePercent.toFixed(1)}%)` : '';
+      const arrow = comp.change > 0 ? ' \u25B2' : comp.change < 0 ? ' \u25BC' : '';
+      const colorClass = comp.change > 0 ? 'status-red' : comp.change < 0 ? 'status-green' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="period-row-label">${label}</td>
+        <td>${Math.round(comp.currentMiles).toLocaleString()} mi</td>
+        <td>${Math.round(comp.priorMiles).toLocaleString()} mi</td>
+        <td class="${colorClass}">${sign}${Math.round(comp.change).toLocaleString()} mi${pct}${arrow}</td>
+      `;
+      tbody.appendChild(tr);
+    }
 
     // Averages
     const mpd = C.milesPerDay(entries, config.startingOdometer, config.leaseStartDate);
@@ -1182,10 +1189,10 @@ App.UI = {
     const accel = C.accelerationTrend(entries, config.startingOdometer, config.leaseStartDate);
     const accelEl = document.getElementById('trend-acceleration');
     if (accel === 'accelerating') {
-      accelEl.textContent = '\u25B2 Usage is accelerating (driving more recently)';
+      accelEl.textContent = '\u25B2 Usage is accelerating (driving more this week)';
       accelEl.className = 'trend-acceleration trend-accel-up';
     } else if (accel === 'decelerating') {
-      accelEl.textContent = '\u25BC Usage is decelerating (driving less recently)';
+      accelEl.textContent = '\u25BC Usage is decelerating (driving less this week)';
       accelEl.className = 'trend-acceleration trend-accel-down';
     } else {
       accelEl.textContent = '\u25CF Usage is steady';
