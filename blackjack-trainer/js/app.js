@@ -586,3 +586,10 @@ async function runVoiceLoop(kind, token) {
     await speak("Sorry, I didn't catch that — please say your answer again.");
   }
 }
+
+// ===== PWA: register service worker for offline / installable use =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
