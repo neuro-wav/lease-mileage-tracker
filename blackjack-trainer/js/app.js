@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   askInsurance: false,
   showCount: true,
   countQuizEvery: 5,
+  drillMode: false,
   voiceOut: true,
   voiceIn: true,
   voiceURI: '',
@@ -27,6 +28,8 @@ function $(id) { return document.getElementById(id); }
 
 const state = {
   settings: loadSettings(),
+  mistakes: App.Mistakes.load(),
+  drillMode: false,
   shoe: null,
   running: false,
   paused: false,
@@ -72,18 +75,20 @@ document.addEventListener('DOMContentLoaded', () => {
   applySettingsToForm();
   wireEvents();
   noteVoiceSupport();
+  renderTroubleSpots();
 });
 
 function cacheEls() {
   [
     'view-settings', 'view-practice', 'settings-form', 'start-btn', 'settings-btn',
     'opt-decks', 'opt-soft17', 'opt-das', 'opt-double-range', 'opt-surrender', 'opt-penetration',
-    'opt-deviations', 'opt-insurance', 'opt-show-count', 'opt-count-quiz',
+    'opt-deviations', 'opt-insurance', 'opt-show-count', 'opt-count-quiz', 'opt-drill-mode',
     'opt-voice-out', 'opt-voice-in', 'opt-voice-select', 'opt-rate', 'voice-support-note',
+    'trouble-spots', 'trouble-spots-list', 'reset-mistakes-btn',
     'stat-hands', 'stat-accuracy', 'stat-running', 'stat-true', 'count-stat-running', 'count-stat-true',
     'dealer-cards', 'player-cards', 'player-total', 'status-pill', 'prompt-text', 'mic-indicator',
     'feedback-banner', 'action-buttons', 'yesno-buttons', 'count-input-row', 'count-answer', 'count-submit',
-    'listen-btn', 'pause-btn', 'repeat-btn', 'mute-btn',
+    'listen-btn', 'pause-btn', 'repeat-btn', 'mute-btn', 'drill-indicator',
   ].forEach(id => { els[id] = $(id); });
 }
 
@@ -123,6 +128,7 @@ function applySettingsToForm() {
   els['opt-insurance'].checked = s.askInsurance;
   els['opt-show-count'].checked = s.showCount;
   els['opt-count-quiz'].value = String(s.countQuizEvery);
+  els['opt-drill-mode'].checked = s.drillMode;
   els['opt-voice-out'].checked = s.voiceOut;
   els['opt-voice-in'].checked = s.voiceIn && App.Voice.supportsRecognition;
   els['opt-rate'].value = String(s.rate);
@@ -140,6 +146,7 @@ function readSettingsFromForm() {
     askInsurance: els['opt-insurance'].checked,
     showCount: els['opt-show-count'].checked,
     countQuizEvery: parseInt(els['opt-count-quiz'].value, 10),
+    drillMode: els['opt-drill-mode'].checked,
     voiceOut: els['opt-voice-out'].checked,
     voiceIn: els['opt-voice-in'].checked && App.Voice.supportsRecognition,
     voiceURI: els['opt-voice-select'].value,
@@ -197,6 +204,23 @@ function wireEvents() {
   els['count-answer'].addEventListener('keydown', (e) => {
     if (e.key === 'Enter') els['count-submit'].click();
   });
+
+  els['reset-mistakes-btn'].addEventListener('click', () => {
+    if (!confirm('Reset your tracked mistakes? This clears all "trouble spot" history.')) return;
+    state.mistakes = App.Mistakes.reset();
+    renderTroubleSpots();
+  });
+}
+
+// ===== Trouble spots panel (settings view) =====
+function renderTroubleSpots() {
+  const top = App.Mistakes.topMistakes(state.mistakes, 8);
+  els['trouble-spots'].classList.toggle('hidden', top.length === 0);
+  els['trouble-spots-list'].innerHTML = top.map(entry => {
+    const pct = Math.round(entry.rate * 100);
+    return `<li><span class="trouble-spot-name">${App.Mistakes.describeScenarioForDisplay(entry.key)}</span>` +
+      `<span class="trouble-spot-stat">missed ${entry.missed}/${entry.seen} (${pct}%)</span></li>`;
+  }).join('');
 }
 
 function showView(name) {
@@ -222,7 +246,8 @@ function speak(text, opts = {}) {
 
 // ===== Practice lifecycle =====
 function startPractice() {
-  state.shoe = new App.Cards.Shoe(state.settings.decks, state.settings.penetration);
+  state.drillMode = state.settings.drillMode;
+  state.shoe = state.drillMode ? null : new App.Cards.Shoe(state.settings.decks, state.settings.penetration);
   state.handsPlayed = 0;
   state.correctCount = 0;
   state.handsSinceQuiz = 0;
@@ -230,13 +255,15 @@ function startPractice() {
   state.running = true;
   els['pause-btn'].textContent = 'Pause';
   els['mute-btn'].textContent = state.muted ? '🔇' : '🔊';
-  els['count-stat-running'].classList.toggle('hidden', !state.settings.showCount);
-  els['count-stat-true'].classList.toggle('hidden', !state.settings.showCount);
+  const showCount = state.settings.showCount && !state.drillMode;
+  els['count-stat-running'].classList.toggle('hidden', !showCount);
+  els['count-stat-true'].classList.toggle('hidden', !showCount);
+  els['drill-indicator'].classList.toggle('hidden', !state.drillMode);
   updateStats();
   showView('practice');
   clearFeedback();
   setStatus('Get ready…');
-  els['prompt-text'].textContent = 'Shuffling the shoe…';
+  els['prompt-text'].textContent = state.drillMode ? 'Drilling your trouble spots…' : 'Shuffling the shoe…';
   runLoop();
 }
 
@@ -250,7 +277,11 @@ function stopPractice() {
 }
 
 async function runLoop() {
-  await speak('Starting practice. ' + describeRules());
+  if (state.drillMode) {
+    await speak('Starting drill mode. I\'ll deal hands weighted toward the scenarios you miss most — no count tracking here, just strategy.');
+  } else {
+    await speak('Starting practice. ' + describeRules());
+  }
   while (state.running) {
     if (state.paused) { await sleep(250); continue; }
     await playRound();
@@ -272,6 +303,8 @@ function describeRules() {
 
 // ===== One round = one initial-draw decision (no full hand play-out) =====
 async function playRound() {
+  if (state.drillMode) return playDrillRound();
+
   if (state.shoe.needsReshuffle()) {
     setStatus('Reshuffling');
     els['prompt-text'].textContent = 'The shoe is being reshuffled. Running count resets to zero.';
@@ -321,6 +354,28 @@ async function playRound() {
     state.handsSinceQuiz = 0;
     await runCountQuiz();
   }
+}
+
+// ===== Drill mode: synthetic hands weighted toward tracked mistakes =====
+const SUIT_OPTIONS = ['♠', '♥', '♦', '♣'];
+function randomSuit() { return SUIT_OPTIONS[Math.floor(Math.random() * SUIT_OPTIONS.length)]; }
+
+async function playDrillRound() {
+  clearFeedback();
+  const rules = rulesFromSettings(state.settings);
+
+  const scenarioKey = App.Mistakes.pickWeighted(state.mistakes);
+  const { playerRanks, dealerRank } = App.Mistakes.synthesizeScenario(scenarioKey);
+  const playerCards = playerRanks.map(r => App.Cards.makeCard(r, randomSuit()));
+  const dealerUp = App.Cards.makeCard(dealerRank, randomSuit());
+
+  renderCards(els['dealer-cards'], [dealerUp]);
+  renderCards(els['player-cards'], playerCards);
+
+  const hand = App.Strategy.classifyHand(playerCards);
+  els['player-total'].textContent = describeTotal(hand);
+
+  await handleActionDecision(playerCards, dealerUp, hand, rules, 0);
 }
 
 function describeTotal(hand) {
@@ -387,6 +442,10 @@ async function handleActionDecision(playerCards, dealerUp, hand, rules, trueCoun
   state.handsSinceQuiz++;
   if (isCorrect) state.correctCount++;
   updateStats();
+
+  const mistakeKey = App.Mistakes.scenarioKey(hand, dealerUp.label);
+  state.mistakes = App.Mistakes.recordAttempt(state.mistakes, mistakeKey, isCorrect);
+  renderTroubleSpots();
 
   highlightButtons(answer, result.action);
 

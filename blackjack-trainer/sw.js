@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bjt-v1';
+const CACHE_VERSION = 'bjt-v2';
 
 const STATIC_ASSETS = [
   './',
@@ -8,6 +8,7 @@ const STATIC_ASSETS = [
   './js/cards.js',
   './js/strategy.js',
   './js/voice.js',
+  './js/mistakes.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
