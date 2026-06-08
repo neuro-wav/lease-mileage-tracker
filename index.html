@@ -356,7 +356,7 @@
 
         <div class="card">
           <h3>Import Mileage CSV</h3>
-          <p class="csv-hint">Upload a CSV with daily odometer readings. The app will automatically convert them into weekly entries. Expected columns: <strong>date</strong> and <strong>odometer</strong> (or <strong>mileage</strong>).</p>
+          <p class="csv-hint">Upload a CSV with either daily odometer readings (<strong>date</strong> + <strong>odometer</strong>/<strong>mileage</strong>) or daily miles driven (<strong>date</strong> + <strong>miles_driven</strong>/<strong>daily_miles</strong>/<strong>distance</strong>). Multiple rows per date are fine for trip logs — the app detects the format, sums same-day trips, and converts everything into weekly entries automatically.</p>
           <div class="csv-import-actions">
             <button id="csv-import-btn" class="btn-secondary">Choose CSV File</button>
             <input type="file" id="csv-file" accept=".csv,.txt" class="hidden">

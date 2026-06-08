@@ -1321,40 +1321,69 @@ App.UI = {
       return;
     }
 
-    // Parse header to find date and odometer columns
+    // Parse header to find date, odometer, and/or daily-miles-driven columns
     const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/["']/g, ''));
+    const norm = h => h.replace(/[\s_]+/g, '_');
     const dateIdx = header.findIndex(h => h === 'date');
     const odoIdx = header.findIndex(h => h === 'odometer' || h === 'mileage' || h === 'odo' || h === 'miles');
+    const deltaIdx = header.findIndex(h =>
+      ['miles_driven', 'daily_miles', 'distance', 'delta', 'miles_per_day'].includes(norm(h))
+    );
 
-    if (dateIdx === -1 || odoIdx === -1) {
-      this.showToast('CSV must have "date" and "odometer" (or "mileage") columns.');
+    if (dateIdx === -1 || (odoIdx === -1 && deltaIdx === -1)) {
+      this.showToast('CSV must have a "date" column and either an "odometer" or "miles_driven" column.');
       return;
     }
 
-    // Parse rows into daily readings
-    const dailyReadings = [];
+    // Prefer absolute odometer readings if present; otherwise treat the column
+    // as daily miles driven (a trip log — multiple rows per date are normal).
+    const isDelta = odoIdx === -1;
+    const valueIdx = isDelta ? deltaIdx : odoIdx;
+
+    // Parse rows into raw {date, value} pairs
+    const rawRows = [];
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map(c => c.trim().replace(/["']/g, ''));
-      if (cols.length <= Math.max(dateIdx, odoIdx)) continue;
+      if (cols.length <= Math.max(dateIdx, valueIdx)) continue;
 
       const dateStr = cols[dateIdx];
-      const odoVal = parseFloat(cols[odoIdx]);
-      if (!dateStr || isNaN(odoVal)) continue;
+      const val = parseFloat(cols[valueIdx]);
+      if (!dateStr || isNaN(val) || val < 0) continue;
 
       // Parse date flexibly (YYYY-MM-DD, MM/DD/YYYY, M/D/YYYY)
       const parsed = this.parseCSVDate(dateStr);
       if (!parsed) continue;
 
-      dailyReadings.push({ date: parsed, odometer: Math.round(odoVal) });
+      rawRows.push({ date: parsed, value: Math.round(val) });
     }
 
-    if (dailyReadings.length === 0) {
+    if (rawRows.length === 0) {
       this.showToast('No valid rows found in CSV.');
       return;
     }
 
-    // Sort by date
-    dailyReadings.sort((a, b) => a.date.localeCompare(b.date));
+    // Convert to absolute daily odometer readings
+    let dailyReadings;
+    if (isDelta) {
+      // Trip-log format: multiple rows per date are expected — group by date
+      // and sum each day's miles, then accumulate into running odometer totals
+      // anchored at the lease's starting odometer.
+      const dayTotals = new Map();
+      for (const r of rawRows) {
+        dayTotals.set(r.date, (dayTotals.get(r.date) || 0) + r.value);
+      }
+      const days = Array.from(dayTotals.entries()).map(([date, miles]) => ({ date, miles }));
+      days.sort((a, b) => a.date.localeCompare(b.date));
+
+      let running = this.data.config.startingOdometer;
+      dailyReadings = days.map(d => {
+        running += d.miles;
+        return { date: d.date, odometer: running };
+      });
+    } else {
+      dailyReadings = rawRows.map(r => ({ date: r.date, odometer: r.value }));
+      dailyReadings.sort((a, b) => a.date.localeCompare(b.date));
+    }
 
     // Aggregate into weekly entries: take the last reading of each ISO week
     const weeklyEntries = this.aggregateWeekly(dailyReadings);
@@ -1366,7 +1395,7 @@ App.UI = {
 
     // Store pending and show preview
     this._csvPendingEntries = weeklyEntries;
-    this.renderCSVPreview(dailyReadings.length, weeklyEntries);
+    this.renderCSVPreview(dailyReadings.length, weeklyEntries, isDelta);
   },
 
   parseCSVDate(str) {
@@ -1414,12 +1443,13 @@ App.UI = {
     return entries;
   },
 
-  renderCSVPreview(totalDaily, weeklyEntries) {
+  renderCSVPreview(totalDaily, weeklyEntries, isDelta) {
     const preview = document.getElementById('csv-preview');
     const summary = document.getElementById('csv-preview-summary');
     const tbody = document.querySelector('#csv-preview-table tbody');
 
-    summary.textContent = `${totalDaily} daily rows → ${weeklyEntries.length} weekly entries`;
+    const formatNote = isDelta ? ' (converted from daily miles driven to odometer readings)' : '';
+    summary.textContent = `${totalDaily} daily rows${formatNote} → ${weeklyEntries.length} weekly entries`;
 
     tbody.innerHTML = '';
     const { config, entries } = this.data;
