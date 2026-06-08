@@ -818,6 +818,21 @@ body {
   gap: 8px;
 }
 
+.csv-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.csv-undo-summary {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+
 /* ===== Empty State ===== */
 .empty-state {
   text-align: center;

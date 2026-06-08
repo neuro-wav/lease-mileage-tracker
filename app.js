@@ -546,6 +546,7 @@ App.UI = {
       this._csvPendingEntries = null;
       document.getElementById('csv-preview').classList.add('hidden');
     });
+    document.getElementById('csv-undo-btn').addEventListener('click', () => this.undoLastCSVImport());
 
     // Data management
     document.getElementById('export-btn').addEventListener('click', () => App.Storage.exportJSON());
@@ -1236,6 +1237,8 @@ App.UI = {
       container.appendChild(row);
     }
 
+    this.renderCSVUndoUI();
+
     // Account card — show if signed in
     const accountCard = document.getElementById('account-card');
     if (App.Auth.isSignedIn()) {
@@ -1481,8 +1484,9 @@ App.UI = {
   confirmCSVImport() {
     if (!this._csvPendingEntries || !this.data) return;
 
-    const { entries } = this.data;
+    const { entries, uiState } = this.data;
     const existingDates = new Set(entries.map(e => e.date));
+    const importedIds = [];
     let added = 0;
     let skipped = 0;
 
@@ -1491,21 +1495,70 @@ App.UI = {
         skipped++;
         continue;
       }
+      const id = 'e_' + Date.now() + '_' + added;
       entries.push({
-        id: 'e_' + Date.now() + '_' + added,
+        id,
         date: we.date,
         odometer: we.odometer,
         createdAt: new Date().toISOString(),
         updatedAt: null
       });
+      importedIds.push(id);
       added++;
     }
 
     entries.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Remember this import so the user can undo it if something looks wrong
+    uiState.lastCSVImport = added > 0
+      ? { ids: importedIds, count: added, importedAt: new Date().toISOString() }
+      : null;
+
     App.Storage.save(this.data);
     this._csvPendingEntries = null;
     document.getElementById('csv-preview').classList.add('hidden');
+    this.renderCSVUndoUI();
+    this.renderLog();
+    this.renderDashboard();
     this.showToast(`Imported ${added} entries.${skipped ? ` ${skipped} skipped (duplicate dates).` : ''}`);
+  },
+
+  renderCSVUndoUI() {
+    const wrap = document.getElementById('csv-undo');
+    const summary = document.getElementById('csv-undo-summary');
+    if (!wrap || !summary) return;
+
+    const last = this.data && this.data.uiState && this.data.uiState.lastCSVImport;
+    if (!last || !last.ids || last.ids.length === 0) {
+      wrap.classList.add('hidden');
+      return;
+    }
+
+    const when = new Date(last.importedAt).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+    summary.textContent = `Last import: ${last.count} ${last.count === 1 ? 'entry' : 'entries'} on ${when}`;
+    wrap.classList.remove('hidden');
+  },
+
+  undoLastCSVImport() {
+    if (!this.data || !this.data.uiState) return;
+    const last = this.data.uiState.lastCSVImport;
+    if (!last || !last.ids || last.ids.length === 0) return;
+
+    if (!confirm(`Remove the ${last.count} ${last.count === 1 ? 'entry' : 'entries'} added by the last CSV import?`)) return;
+
+    const idSet = new Set(last.ids);
+    const before = this.data.entries.length;
+    this.data.entries = this.data.entries.filter(e => !idSet.has(e.id));
+    const removed = before - this.data.entries.length;
+
+    this.data.uiState.lastCSVImport = null;
+    App.Storage.save(this.data);
+    this.renderCSVUndoUI();
+    this.renderLog();
+    this.renderDashboard();
+    this.showToast(`Removed ${removed} ${removed === 1 ? 'entry' : 'entries'} from the last import.`);
   },
 
   // ===== Toast =====
