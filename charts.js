@@ -7,7 +7,7 @@ App.Charts = {
     cumulative: null,
     gauges: [],
     period: null,
-    last30: null
+    last12weeks: null
   },
 
   destroyAll() {
@@ -20,9 +20,9 @@ App.Charts = {
       this._instances.period.destroy();
       this._instances.period = null;
     }
-    if (this._instances.last30) {
-      this._instances.last30.destroy();
-      this._instances.last30 = null;
+    if (this._instances.last12weeks) {
+      this._instances.last12weeks.destroy();
+      this._instances.last12weeks = null;
     }
   },
 
@@ -270,74 +270,57 @@ App.Charts = {
     });
   },
 
-  // ===== Past 30 Days Bar Chart =====
-  updateLast30Chart(config, entries) {
-    const canvas  = document.getElementById('chart-last30');
-    const wrap    = document.getElementById('chart-last30-wrap');
-    const empty   = document.getElementById('chart-last30-empty');
+  // ===== Past 12 Weeks Bar Chart =====
+  updateLast12WeeksChart(config, entries) {
+    const canvas = document.getElementById('chart-12weeks');
+    const wrap   = document.getElementById('chart-12weeks-wrap');
+    const empty  = document.getElementById('chart-12weeks-empty');
     if (!canvas) return;
 
-    // Cutoff = 30 calendar days ago (local midnight)
-    const today = new Date();
-    const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-    // Sort all entries chronologically
+    // Take the most recent 12 entries (entries are stored as weekly snapshots)
     const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-
-    // Baseline odometer just before the window
-    let baseline = config.startingOdometer;
-    for (const e of sorted) {
-      if (e.date < cutoffStr) baseline = e.odometer;
-      else break;
-    }
-
-    // Entries that fall within the window
-    const window30 = sorted.filter(e => e.date >= cutoffStr);
+    const window12 = sorted.slice(-12);
 
     const showEmpty = (show) => {
       wrap.classList.toggle('hidden', show);
       empty.classList.toggle('hidden', !show);
     };
 
-    if (window30.length === 0) {
+    if (window12.length === 0) {
       showEmpty(true);
-      if (this._instances.last30) {
-        this._instances.last30.destroy();
-        this._instances.last30 = null;
+      if (this._instances.last12weeks) {
+        this._instances.last12weeks.destroy();
+        this._instances.last12weeks = null;
       }
       return;
     }
     showEmpty(false);
 
-    // Build one bar per entry: miles since the previous entry (or baseline)
-    const bars = window30.map((e, i) => {
-      const prevOdo = i === 0 ? baseline : window30[i - 1].odometer;
-      const miles   = Math.max(0, e.odometer - prevOdo);
-      const prevDate = i === 0
-        ? (sorted.find(x => x.date < cutoffStr && x.odometer === baseline)?.date ?? cutoffStr)
-        : window30[i - 1].date;
+    // For each entry, miles = odometer delta from the prior entry (or starting odometer)
+    const budgetPerWeek = Math.round(config.yearlyAllotment / 52);
 
-      // Actual days this bar covers (so the budget line scales correctly)
-      const ms   = new Date(e.date + 'T00:00:00') - new Date(prevDate + 'T00:00:00');
-      const days = Math.max(1, Math.round(ms / 86400000));
-      return { date: e.date, miles, days };
-    });
+    const labels = [];
+    const data   = [];
+    const colors = [];
 
-    const budgetPerDay = config.yearlyAllotment / 365;
+    for (let i = 0; i < window12.length; i++) {
+      const e       = window12[i];
+      const prevOdo = i === 0
+        ? (sorted[sorted.indexOf(e) - 1]?.odometer ?? config.startingOdometer)
+        : window12[i - 1].odometer;
+      const miles = Math.max(0, e.odometer - prevOdo);
 
-    const labels = bars.map(b => {
-      const d = new Date(b.date + 'T00:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    });
-    const data   = bars.map(b => Math.round(b.miles));
-    const budget = bars.map(b => Math.round(budgetPerDay * b.days));
-    const colors = bars.map((b, i) => {
-      const bud = budget[i];
-      if (b.miles > bud * 1.05) return '#ef4444';
-      if (b.miles > bud)        return '#f59e0b';
-      return '#22c55e';
-    });
+      const d = new Date(e.date + 'T00:00:00');
+      labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      data.push(Math.round(miles));
+      colors.push(
+        miles > budgetPerWeek * 1.05 ? '#ef4444' :
+        miles > budgetPerWeek        ? '#f59e0b' :
+                                       '#22c55e'
+      );
+    }
+
+    const budgetData = data.map(() => budgetPerWeek);
 
     const chartCfg = {
       type: 'bar',
@@ -351,8 +334,8 @@ App.Charts = {
             borderRadius: 4
           },
           {
-            label: 'Budget pace',
-            data: budget,
+            label: 'Weekly budget',
+            data: budgetData,
             type: 'line',
             borderColor: '#ef4444',
             borderDash: [6, 3],
@@ -386,8 +369,8 @@ App.Charts = {
           tooltip: {
             callbacks: {
               label: ctx => {
-                if (ctx.dataset.label === 'Budget pace') {
-                  return `Budget: ${Math.round(ctx.parsed.y).toLocaleString()} mi`;
+                if (ctx.dataset.label === 'Weekly budget') {
+                  return `Budget: ${Math.round(ctx.parsed.y).toLocaleString()} mi/wk`;
                 }
                 return `Driven: ${Math.round(ctx.parsed.y).toLocaleString()} mi`;
               }
@@ -397,14 +380,14 @@ App.Charts = {
       }
     };
 
-    if (this._instances.last30) {
-      this._instances.last30.data.labels                    = labels;
-      this._instances.last30.data.datasets[0].data          = data;
-      this._instances.last30.data.datasets[0].backgroundColor = colors;
-      this._instances.last30.data.datasets[1].data          = budget;
-      this._instances.last30.update();
+    if (this._instances.last12weeks) {
+      this._instances.last12weeks.data.labels                       = labels;
+      this._instances.last12weeks.data.datasets[0].data             = data;
+      this._instances.last12weeks.data.datasets[0].backgroundColor  = colors;
+      this._instances.last12weeks.data.datasets[1].data             = budgetData;
+      this._instances.last12weeks.update();
     } else {
-      this._instances.last30 = new Chart(canvas, chartCfg);
+      this._instances.last12weeks = new Chart(canvas, chartCfg);
     }
   },
 

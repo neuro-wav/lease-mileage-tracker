@@ -1211,9 +1211,9 @@ App.UI = {
       accelEl.className = 'trend-acceleration trend-accel-steady';
     }
 
-    // Past-30-days chart
-    if (App.Charts && App.Charts.updateLast30Chart) {
-      App.Charts.updateLast30Chart(config, entries);
+    // Past 12 weeks chart
+    if (App.Charts && App.Charts.updateLast12WeeksChart) {
+      App.Charts.updateLast12WeeksChart(config, entries);
     }
 
     // Period chart
