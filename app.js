@@ -1355,7 +1355,35 @@ App.UI = {
     const delimiter = [',', ';', '\t']
       .map(d => ({ d, count: headerLine.split(d).length - 1 }))
       .sort((a, b) => b.count - a.count)[0].d;
-    const splitRow = (line) => line.split(delimiter).map(c => c.trim().replace(/["']/g, ''));
+    // Quote-aware row splitter: a naive line.split(delimiter) breaks on values
+    // like `"07/06/2026, 21:31",3.11` (a quoted date that itself contains the
+    // delimiter), corrupting every column that follows. Walk the line
+    // character-by-character so quoted fields are kept intact.
+    const splitRow = (line) => {
+      const cells = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (line[i + 1] === '"') { cur += '"'; i++; }
+            else { inQuotes = false; }
+          } else {
+            cur += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === delimiter) {
+          cells.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      cells.push(cur.trim());
+      return cells;
+    };
 
     // Parse header to find date, odometer, and/or daily-miles-driven columns
     const header = splitRow(headerLine).map(h => h.toLowerCase());
@@ -1373,8 +1401,21 @@ App.UI = {
 
     // Prefer absolute odometer readings if present; otherwise treat the column
     // as daily miles driven (a trip log — multiple rows per date are normal).
-    const isDelta = odoIdx === -1;
+    let isDelta = odoIdx === -1;
     const valueIdx = isDelta ? deltaIdx : odoIdx;
+
+    // Slash-separated dates are ambiguous ("07/06/2026" could be MM/DD or
+    // DD/MM depending on the exporter's locale). Scan every date in the file
+    // first: if any first component exceeds 12, it can only be a day, so the
+    // whole file must be day-first (DD/MM/YYYY) — and vice versa. This avoids
+    // building impossible dates like "2026-31-05" that later crash with
+    // "Invalid time value".
+    const dateSamples = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = splitRow(lines[i]);
+      if (cols.length > dateIdx) dateSamples.push(cols[dateIdx]);
+    }
+    const slashFormat = this._detectSlashDateFormat(dateSamples);
 
     // Parse rows into raw {date, value} pairs
     const rawRows = [];
@@ -1387,16 +1428,35 @@ App.UI = {
       const val = parseFloat(String(cols[valueIdx]).replace(/[,\s]/g, ''));
       if (!dateStr || isNaN(val) || val < 0) continue;
 
-      // Parse date flexibly (YYYY-MM-DD, MM/DD/YYYY, M/D/YYYY)
-      const parsed = this.parseCSVDate(dateStr);
+      // Parse date flexibly (YYYY-MM-DD, MM/DD/YYYY or DD/MM/YYYY per slashFormat, etc.)
+      const parsed = this.parseCSVDate(dateStr, slashFormat);
       if (!parsed) continue;
 
-      rawRows.push({ date: parsed, value: Math.round(val) });
+      rawRows.push({ date: parsed, value: Math.round(val * 100) / 100 });
     }
 
     if (rawRows.length === 0) {
       this.showToast('No valid rows found in CSV.');
       return;
+    }
+
+    // A column matched as "odometer/mileage" can still actually be a per-trip
+    // delta — e.g. a "Mileage" column logging miles for each individual short
+    // trip (the same date repeated with different small values). A real
+    // odometer can never have two different readings on the same date, so
+    // duplicate dates with differing values are a sure sign this is really a
+    // trip log; reclassify it as delta and sum/accumulate accordingly.
+    if (!isDelta) {
+      const seen = new Map();
+      let conflictingDuplicates = false;
+      for (const r of rawRows) {
+        if (seen.has(r.date) && seen.get(r.date) !== r.value) {
+          conflictingDuplicates = true;
+          break;
+        }
+        seen.set(r.date, r.value);
+      }
+      if (conflictingDuplicates) isDelta = true;
     }
 
     // Convert to absolute daily odometer readings
@@ -1415,7 +1475,9 @@ App.UI = {
       let running = this.data.config.startingOdometer;
       dailyReadings = days.map(d => {
         running += d.miles;
-        return { date: d.date, odometer: running };
+        // Round to whole miles — odometer readings are integers, and repeated
+        // floating-point additions (e.g. 3.11 + 6.21 + ...) otherwise drift.
+        return { date: d.date, odometer: Math.round(running) };
       });
     } else {
       dailyReadings = rawRows.map(r => ({ date: r.date, odometer: r.value }));
@@ -1435,39 +1497,78 @@ App.UI = {
     this.renderCSVPreview(dailyReadings.length, weeklyEntries, isDelta);
   },
 
-  parseCSVDate(str) {
+  // slashFormat: 'MDY' (default, MM/DD/YYYY) or 'DMY' (DD/MM/YYYY).
+  // Determined once per file by _detectSlashDateFormat() so that ambiguous
+  // dates like "07/06/2026" are interpreted consistently across all rows.
+  parseCSVDate(str, slashFormat = 'MDY') {
     str = String(str).trim();
 
-    // Some exports include a time-of-day alongside the date
-    // (e.g. "2024-03-02 14:30:00", "2024-03-02T08:15:00Z", "3/2/2024 10:15 AM").
-    // We only care about the calendar date for daily odometer/mileage logs,
-    // so split off everything from the first space or "T" before matching.
-    const datePart = str.split(/[T\s]+/)[0];
+    // Strip any time component (e.g. "2024-03-02 14:30:00", "07/06/2026, 21:31",
+    // "2024-03-02T08:15:00Z"). Split on T, whitespace, or comma — any of these
+    // can separate a date from its accompanying time-of-day in real exports.
+    const datePart = str.split(/[T\s,]+/)[0];
 
-    // Try YYYY-MM-DD or YYYY/MM/DD
+    // Try YYYY-MM-DD or YYYY/MM/DD (unambiguous — year is always first)
     let m = datePart.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if (m) {
-      return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+      const mo = m[2].padStart(2, '0'), da = m[3].padStart(2, '0');
+      // Validate before returning — avoids producing "2026-31-05" etc.
+      if (parseInt(mo) >= 1 && parseInt(mo) <= 12 && parseInt(da) >= 1 && parseInt(da) <= 31) {
+        return `${m[1]}-${mo}-${da}`;
+      }
+      return null;
     }
 
-    // Try MM/DD/YYYY, M/D/YYYY, or MM-DD-YYYY
+    // Try two-component slash/dash dates: MM/DD/YYYY or DD/MM/YYYY
     m = datePart.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
     if (m) {
-      return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+      let month, day;
+      if (slashFormat === 'DMY') {
+        day   = parseInt(m[1], 10);
+        month = parseInt(m[2], 10);
+      } else {
+        month = parseInt(m[1], 10);
+        day   = parseInt(m[2], 10);
+      }
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${m[3]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+      return null;
     }
 
-    // Try Date.parse as fallback (handles "Mar 2 2024", "2024-03-02 2:30 PM", etc.)
-    // Use local-time getters rather than toISOString() — converting to UTC can
-    // shift the date by a day for timestamps near midnight in the user's timezone.
+    // Fallback: let the JS engine parse more exotic formats (e.g. "Mar 2 2024",
+    // "2 March 2026"). Use local-time getters — NOT toISOString() — to avoid a
+    // UTC-midnight shift that can move the date back by one day.
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      const y = d.getFullYear();
+      const y  = d.getFullYear();
       const mo = String(d.getMonth() + 1).padStart(2, '0');
       const da = String(d.getDate()).padStart(2, '0');
       return `${y}-${mo}-${da}`;
     }
 
     return null;
+  },
+
+  // Scan raw date strings from the CSV to determine whether slash-separated
+  // values are day-first (DD/MM/YYYY) or month-first (MM/DD/YYYY).
+  // Rule: if any first component exceeds 12, it can only be a day — so the
+  // whole file must be day-first. If no first component exceeds 12 but some
+  // second component does, it's month-first. If all components are ≤ 12
+  // (truly ambiguous), default to MM/DD/YYYY (US format, matching the old
+  // behaviour for US-origin CSVs).
+  _detectSlashDateFormat(dateStrs) {
+    let sawFirstGT12 = false;
+    let sawSecondGT12 = false;
+    for (const s of dateStrs) {
+      const datePart = String(s).trim().split(/[T\s,]+/)[0];
+      const m = datePart.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+      if (!m) continue;
+      const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (a > 12) { sawFirstGT12 = true; break; }
+      if (b > 12) sawSecondGT12 = true;
+    }
+    return sawFirstGT12 ? 'DMY' : (sawSecondGT12 ? 'MDY' : 'MDY');
   },
 
   aggregateWeekly(dailyReadings) {
