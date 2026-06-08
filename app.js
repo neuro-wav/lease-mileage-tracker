@@ -1436,21 +1436,35 @@ App.UI = {
   },
 
   parseCSVDate(str) {
-    // Try YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    str = String(str).trim();
 
-    // Try MM/DD/YYYY or M/D/YYYY
-    const mdyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mdyMatch) {
-      const m = mdyMatch[1].padStart(2, '0');
-      const d = mdyMatch[2].padStart(2, '0');
-      return `${mdyMatch[3]}-${m}-${d}`;
+    // Some exports include a time-of-day alongside the date
+    // (e.g. "2024-03-02 14:30:00", "2024-03-02T08:15:00Z", "3/2/2024 10:15 AM").
+    // We only care about the calendar date for daily odometer/mileage logs,
+    // so split off everything from the first space or "T" before matching.
+    const datePart = str.split(/[T\s]+/)[0];
+
+    // Try YYYY-MM-DD or YYYY/MM/DD
+    let m = datePart.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (m) {
+      return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
     }
 
-    // Try Date.parse as fallback
+    // Try MM/DD/YYYY, M/D/YYYY, or MM-DD-YYYY
+    m = datePart.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (m) {
+      return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+    }
+
+    // Try Date.parse as fallback (handles "Mar 2 2024", "2024-03-02 2:30 PM", etc.)
+    // Use local-time getters rather than toISOString() — converting to UTC can
+    // shift the date by a day for timestamps near midnight in the user's timezone.
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      return d.toISOString().slice(0, 10);
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${da}`;
     }
 
     return null;
