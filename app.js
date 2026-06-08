@@ -537,7 +537,18 @@ App.UI = {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => this.handleCSVImport(reader.result);
+      reader.onload = () => {
+        try {
+          this.handleCSVImport(reader.result);
+        } catch (err) {
+          console.error('CSV import failed:', err);
+          this.showToast('Could not read that CSV — ' + (err && err.message ? err.message : 'unexpected format.'));
+        }
+      };
+      reader.onerror = () => {
+        console.error('CSV file read failed:', reader.error);
+        this.showToast('Could not read that file. Try re-saving it as a plain .csv and upload again.');
+      };
       reader.readAsText(file);
       e.target.value = '';
     });
@@ -1316,17 +1327,38 @@ App.UI = {
       this.showToast('Please complete setup first.');
       return;
     }
+    if (typeof csvText !== 'string' || !csvText.trim()) {
+      this.showToast('That file appears to be empty or unreadable.');
+      return;
+    }
 
-    // Parse CSV — strip a leading UTF-8 BOM (common in Excel/Numbers exports),
-    // which would otherwise silently break header matching (e.g. "﻿date").
-    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/);
+    try {
+      this._parseAndPreviewCSV(csvText);
+    } catch (err) {
+      console.error('CSV import failed:', err);
+      this.showToast('Could not import that CSV — ' + (err && err.message ? err.message : 'unexpected format.'));
+    }
+  },
+
+  _parseAndPreviewCSV(csvText) {
+    // Strip a leading UTF-8 BOM (common in Excel/Numbers exports), which would
+    // otherwise silently break header matching (e.g. "﻿date").
+    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim() !== '');
     if (lines.length < 2) {
       this.showToast('CSV file is empty or has no data rows.');
       return;
     }
 
+    // Detect the delimiter from the header row — comma is standard, but some
+    // regional Excel exports use semicolons or tabs.
+    const headerLine = lines[0];
+    const delimiter = [',', ';', '\t']
+      .map(d => ({ d, count: headerLine.split(d).length - 1 }))
+      .sort((a, b) => b.count - a.count)[0].d;
+    const splitRow = (line) => line.split(delimiter).map(c => c.trim().replace(/["']/g, ''));
+
     // Parse header to find date, odometer, and/or daily-miles-driven columns
-    const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/["']/g, ''));
+    const header = splitRow(headerLine).map(h => h.toLowerCase());
     const norm = h => h.replace(/[\s_]+/g, '_');
     const dateIdx = header.findIndex(h => h === 'date');
     const odoIdx = header.findIndex(h => h === 'odometer' || h === 'mileage' || h === 'milage' || h === 'odo' || h === 'miles');
@@ -1347,11 +1379,12 @@ App.UI = {
     // Parse rows into raw {date, value} pairs
     const rawRows = [];
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',').map(c => c.trim().replace(/["']/g, ''));
+      const cols = splitRow(lines[i]);
       if (cols.length <= Math.max(dateIdx, valueIdx)) continue;
 
       const dateStr = cols[dateIdx];
-      const val = parseFloat(cols[valueIdx]);
+      // Strip thousands separators (e.g. "15,200" or "15 200") before parsing
+      const val = parseFloat(String(cols[valueIdx]).replace(/[,\s]/g, ''));
       if (!dateStr || isNaN(val) || val < 0) continue;
 
       // Parse date flexibly (YYYY-MM-DD, MM/DD/YYYY, M/D/YYYY)

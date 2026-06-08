@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'lmt-v9';
+const CACHE_VERSION = 'lmt-v11';
 
 const STATIC_ASSETS = [
   './',
@@ -20,10 +20,27 @@ const CDN_ASSETS = [
 
 const ALL_ASSETS = [...STATIC_ASSETS, ...CDN_ASSETS];
 
-// Install: pre-cache all assets
+// Install: pre-cache all assets.
+// IMPORTANT: cache.addAll() uses the default fetch cache mode, which can be
+// satisfied from the browser's HTTP cache — re-populating a brand-new
+// versioned cache with STALE assets and silently defeating the
+// CACHE_VERSION bump. Force a network-fresh fetch for every asset instead.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(ALL_ASSETS))
+    caches.open(CACHE_VERSION).then((cache) =>
+      Promise.all(
+        ALL_ASSETS.map((url) =>
+          fetch(url, { cache: 'reload' })
+            .then((response) => {
+              if (response.ok) return cache.put(url, response);
+            })
+            .catch(() => {
+              // Ignore failures for individual assets (e.g. CDN offline during install)
+              // so the rest of the app can still be cached and the SW can activate.
+            })
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
