@@ -1317,8 +1317,9 @@ App.UI = {
       return;
     }
 
-    // Parse CSV
-    const lines = csvText.trim().split(/\r?\n/);
+    // Parse CSV — strip a leading UTF-8 BOM (common in Excel/Numbers exports),
+    // which would otherwise silently break header matching (e.g. "﻿date").
+    const lines = csvText.replace(/^﻿/, '').trim().split(/\r?\n/);
     if (lines.length < 2) {
       this.showToast('CSV file is empty or has no data rows.');
       return;
@@ -1328,7 +1329,7 @@ App.UI = {
     const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/["']/g, ''));
     const norm = h => h.replace(/[\s_]+/g, '_');
     const dateIdx = header.findIndex(h => h === 'date');
-    const odoIdx = header.findIndex(h => h === 'odometer' || h === 'mileage' || h === 'odo' || h === 'miles');
+    const odoIdx = header.findIndex(h => h === 'odometer' || h === 'mileage' || h === 'milage' || h === 'odo' || h === 'miles');
     const deltaIdx = header.findIndex(h =>
       ['miles_driven', 'daily_miles', 'distance', 'delta', 'miles_per_day'].includes(norm(h))
     );
